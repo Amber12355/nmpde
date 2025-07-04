@@ -216,7 +216,7 @@ protected:
   solve_linear_system();
 
   // Solve the problem for one time step.
-  void
+  unsigned int
   solve_newton();
 
   // Output.
@@ -303,6 +303,12 @@ protected:
 
   // System solution at previous time step.
   TrilinosWrappers::MPI::Vector solution_old;
+  double       deltat_min = 1.0 / 36.0;      
+  double       deltat_max = 1.0;      
+  const double increase_factor = 1.2; 
+  const double decrease_factor = 0.5; 
+
+  const unsigned int target_newton_iters = 4;
 };
 
 #endif
