@@ -1,20 +1,10 @@
-### Instructions to build and run the code
+### Run
 
-
-The brain mesh can be downloaded from this link and placed inside the folder "FK_solver/mesh":
-https://drive.google.com/file/d/1PJTaHAU-kgxId5_C6Zd4nj27HRcyHZS2/view
-
-### Compiling
-To build the executable:
+To run the code:
 ```bash
-$  cd FK_solver/src/
+$ cd FishKolm
 $ module load gcc-glibc dealii
-$ mkdir build
+$ ./test.sh
 $ cd build
-$ cmake ..
-$ make
-```
-The executable will be created into `build`, and can be executed through
-```bash
-$ mpirun -np <number of cores> ./FK_solver
+$ ./FishKolm
 ```
