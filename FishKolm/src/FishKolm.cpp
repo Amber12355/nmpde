@@ -1,4 +1,5 @@
 #include "FishKolm.hpp"
+#include "deal.II/base/timer.h"
 
 void 
 FISHKOLM::setup()
@@ -189,21 +190,20 @@ FISHKOLM::assemble_system()
   system_rhs.compress(VectorOperation::add);
 }
 
-void 
-FISHKOLM::solve_linear_system()
+void FK_solver::solve_linear_system()
 {
-  SolverControl solver_control(100000, 1e-6 * system_rhs.l2_norm());
 
+  SolverControl solver_control(5000, 1e-6 * residual_vector.l2_norm());
   SolverCG<TrilinosWrappers::MPI::Vector> solver(solver_control);
-  TrilinosWrappers::PreconditionSSOR      preconditioner;
-  preconditioner.initialize(
-    lhs_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
+  TrilinosWrappers::PreconditionAMG preconditioner;
+  TrilinosWrappers::PreconditionAMG::AdditionalData amg_data;
+  preconditioner.initialize(jacobian_matrix, amg_data);
 
-  solver.solve(lhs_matrix, delta_owned, system_rhs, preconditioner);
+  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
-void 
+unsigned int 
 FISHKOLM::solve_newton()
 {
   const unsigned int n_max_iters = 1000;
@@ -234,6 +234,7 @@ FISHKOLM::solve_newton()
 
     ++n_iter;
   }
+  return n_iter;
 }
 
 void 
@@ -257,19 +258,42 @@ FISHKOLM::solve()
 
   unsigned int time_step = 0;
 
-  while (time < T - 0.5 * deltat)
+  Timer timer;
+  timer.start();
+  while (time < T)
   {
-    time += deltat;
-    ++time_step;
-
     solution_old = solution;
 
-    pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
-          << time << ":" << std::flush;
+    const unsigned int n_newton_iters = solve_newton();
 
-    solve_newton();
-    output(time_step);
+    if (n_newton_iters >= 1000) 
+    {
+      pcout << "  deny cur step length, reduce length..." << std::endl;
+      solution = solution_old; 
+      deltat = std::max(deltat * decrease_factor, deltat_min); 
+    }
+    else 
+    {      
+      time += deltat;
+      ++time_step;
+      output(time_step);
+      pcout << "  Step " << std::setw(4) << time_step
+            << " accepted. Time: " << std::setw(6) << std::fixed << std::setprecision(2) << time
+            << " / " << std::fixed << std::setprecision(2) << T
+            << " years. (current dt = " << std::scientific << std::setprecision(2) << deltat << ")"
+            << std::endl;
+
+      if (n_newton_iters < target_newton_iters) {        
+        deltat = std::min(deltat * increase_factor, deltat_max);
+      }
+      else if (n_newton_iters > target_newton_iters) {       
+        deltat = std::max(deltat * decrease_factor, deltat_min);
+      }
+    }
+    pcout <<std::endl;
   }
+    timer.stop();
+    pcout << "total execute time: "<<timer.wall_time()<<" s."<<std::endl;
 }
 
 void 
@@ -288,4 +312,3 @@ FISHKOLM::output(const unsigned int &time_step) const
   data_out.write_vtu_with_pvtu_record(
     "./", "output", time_step, MPI_COMM_WORLD, 3);
 }
-
