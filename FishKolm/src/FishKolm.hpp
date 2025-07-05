@@ -207,6 +207,8 @@ public:
   // Solve the problem.
   void
   solve();
+  void
+  solve_opt();
 
 protected:
   // Assemble.
