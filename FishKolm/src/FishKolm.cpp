@@ -189,17 +189,50 @@ FISHKOLM::solve_linear_system()
 void 
 FISHKOLM::solve_linear_system_2()
 {
-  SolverControl solver_control(100000, 1e-6 * system_rhs.l2_norm());
+  SolverControl solver_control(5000, 1e-6 * residual_vector.l2_norm());
+  SolverCG<TrilinosWrappers::MPI::Vector> solver(solver_control);
+  TrilinosWrappers::PreconditionAMG preconditioner;
+  TrilinosWrappers::PreconditionAMG::AdditionalData amg_data;
+  preconditioner.initialize(jacobian_matrix, amg_data);
 
-  SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control);
-  TrilinosWrappers::PreconditionSSOR      preconditioner;
-  preconditioner.initialize(
-    lhs_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
-
-  solver.solve(lhs_matrix, delta_owned, system_rhs, preconditioner);
-  pcout << "  " << solver_control.last_step() << " GMRES iterations" << std::endl;
+  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner);
+  pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
+unsigned int FK_solver::solve_newton_opt()
+{
+  const unsigned int n_max_iters = 1000;
+  const double residual_tolerance = 1e-3;
+
+  unsigned int n_iter = 0;
+  double residual_norm = residual_tolerance + 1;
+
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
+  {
+    assemble_system();
+    residual_norm = residual_vector.l2_norm();
+
+    pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
+          << " - ||r|| = " << std::scientific << std::setprecision(6)
+          << residual_norm << std::flush;
+
+    // We actually solve the system only if the residual is larger than the
+    // tolerance.
+    if (residual_norm > residual_tolerance)
+    {
+      solve_linear_system();
+      solution_owned += delta_owned;
+      solution = solution_owned;
+    }
+    else
+    {
+      pcout << " < tolerance" << std::endl;
+    }
+
+    ++n_iter;
+  }
+  return n_iter;
+}
 void 
 FISHKOLM::solve_newton()
 {
@@ -238,7 +271,65 @@ FISHKOLM::solve_newton()
           << residual_norm << std::endl;
   }
 }
+void FK_solver::solve_opt()
+{
+  Timer timer;
+  timer.start();
+  pcout << "===============================================" << std::endl;
 
+  time = 0.0;
+
+  // Apply the initial condition.
+  {
+    pcout << "Applying the initial condition" << std::endl;
+
+    VectorTools::interpolate(dof_handler, u_0, solution_owned);
+    solution = solution_owned;
+
+    // Output the initial solution.
+    output(0);
+    pcout << "-----------------------------------------------" << std::endl;
+  }
+
+  unsigned int time_step = 0;
+
+  while (time < T)
+  {
+    solution_old = solution;
+
+    const unsigned int n_newton_iters = solve_newton_opt();
+
+    if (n_newton_iters >= 1000)
+    {
+      pcout << "  deny cur step length, reduce length..." << std::endl;
+      solution = solution_old; 
+      deltat = std::max(deltat * decrease_factor, deltat_min); 
+    }
+    else 
+    {      
+      time += deltat;
+      ++time_step;
+      output(time_step);
+      pcout << "  Step " << std::setw(4) << time_step
+            << " accepted. Time: " << std::setw(6) << std::fixed << std::setprecision(2) << time
+            << " / " << std::fixed << std::setprecision(2) << T
+            << " years. (current dt = " << std::scientific << std::setprecision(2) << deltat << ")"
+            << std::endl;
+
+      // 4. adjust step length
+      if (n_newton_iters < target_newton_iters) {        // convergence too fast,increase length
+        deltat = std::min(deltat * increase_factor, deltat_max);
+      }
+      else if (n_newton_iters > target_newton_iters) {   //convergnece too slow
+        deltat = std::max(deltat * decrease_factor, deltat_min);
+      }
+    }
+    pcout <<std::endl;
+  }
+  
+    timer.stop();
+    pcout << "total execute time: "<<timer.wall_time()<<" s."<<std::endl;
+}
 void 
 FISHKOLM::solve()
 {
