@@ -136,16 +136,22 @@ public:
     value(const Point<dim> &p,
           const unsigned int /*component*/ = 0) const override
     {
-      if (p[0] < 65 && p[0] > 55 && p[1] < 85 && p[1] > 75 && p[2] < 45 && p[2] > 35)
-      {
-       return 0.9;
-      }
-
-      // Frontal cortex area
-      // if (p[0] < 80 && p[0] > 40 && p[1] < 150 && p[1] > 100 && p[2] < 110 && p[2] > 50)
+      // if (p[0] < 65 && p[0] > 55 && p[1] < 85 && p[1] > 75 && p[2] < 45 && p[2] > 35)
       // {
-      //   return 0.9;
+      //  return 0.9;
       // }
+
+      // Neocortex area - Alzheimer's disease
+      if (p[0] > 40 && p[0] < 80 &&  p[1] > 100 && p[1] < 150 && p[2] > 50 &&  p[2] < 110 )
+      {
+        return 0.9;
+      } else if (p[0] > 20 && p[0] < 60 && p[1] > 10 && p[1] < 50 && p[2] > 30 && p[2] < 80 )
+      {
+        return 0.9;
+      } else {
+        return 0.0;
+      }
+      
 
       return 0;
     }
@@ -202,10 +208,6 @@ public:
   void
   solve();
 
-  // Compute the error for convergence analysis.
-  double
-  compute_error(const VectorTools::NormType &norm_type);
-
 protected:
   // Assemble.
   void
@@ -214,6 +216,9 @@ protected:
   // Solve the linear system.
   void
   solve_linear_system();
+
+  void
+  solve_linear_system_2();
 
   // Solve the problem for one time step.
   void

@@ -88,8 +88,8 @@ FISHKOLM::setup()
 void 
 FISHKOLM::assemble_system()
 {
-  std::cout << "===============================================" << std::endl;
-  std::cout << "  Assembling the linear system" << std::endl;
+  // std::cout << "===============================================" << std::endl;
+  // std::cout << "  Assembling the linear system" << std::endl;
 
   const unsigned int dofs_per_cell = fe->dofs_per_cell;
   const unsigned int n_q = quadrature->size();
@@ -102,17 +102,13 @@ FISHKOLM::assemble_system()
 
   FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double> cell_rhs(dofs_per_cell);
-
   std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
   lhs_matrix = 0.0;
   system_rhs = 0.0;
 
-  // Value and gradient of the solution on current cell.
   std::vector<double> solution_loc(n_q);
   std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
-
-  // Value of the solution at previous timestep (un) on current cell.
   std::vector<double> solution_old_loc(n_q);
 
   forcing_term.set_time(time);
@@ -133,49 +129,35 @@ FISHKOLM::assemble_system()
 
     for (unsigned int q = 0; q < n_q; ++q)
     {
-      // Alpha coefficiet.
-      const double alpha_loc = alpha_coefficient.value(fe_values.quadrature_point(q));
-      // Matrix D.
-      const Tensor<2, dim> D_matrix = D.matrix_value(fe_values.quadrature_point(q));
+      const auto &x_q = fe_values.quadrature_point(q);
+      const double JxW = fe_values.JxW(q);
+
+      const double alpha = alpha_coefficient.value(x_q);
+      const Tensor<2, dim> D_matrix = D.matrix_value(x_q);
 
       for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
+        const double phi_i = fe_values.shape_value(i, q);
+        const Tensor<1, dim> grad_phi_i = fe_values.shape_grad(i, q);
+
         for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
+          const double phi_j = fe_values.shape_value(j, q);
+          const Tensor<1, dim> grad_phi_j = fe_values.shape_grad(j, q);
 
-          cell_matrix(i, j) += fe_values.shape_value(i, q) *
-                               fe_values.shape_value(j, q) / deltat *
-                               fe_values.JxW(q);
-
-          cell_matrix(i, j) -= alpha_loc *
-                               fe_values.shape_value(j, q) *
-                               fe_values.shape_value(i, q) *
-                               fe_values.JxW(q);
-
-          cell_matrix(i, j) += 2.0 * alpha_loc *
-                               solution_loc[q] *
-                               fe_values.shape_value(j, q) *
-                               fe_values.shape_value(i, q) *
-                               fe_values.JxW(q);
-
-          const Tensor<1, dim> &grad_phi_i = fe_values.shape_grad(i, q);
-          const Tensor<1, dim> &grad_phi_j = fe_values.shape_grad(j, q);
-          cell_matrix(i, j) += scalar_product(D_matrix * grad_phi_j, grad_phi_i) * fe_values.JxW(q);
+          cell_matrix(i, j) += (
+            phi_i * phi_j / deltat
+            - alpha * phi_j * phi_i
+            + 2.0 * alpha * solution_loc[q] * phi_j * phi_i
+            + scalar_product(D_matrix * grad_phi_j, grad_phi_i)
+          ) * JxW;
         }
 
-        // Time derivative term
-        cell_rhs(i) -= (solution_loc[q] - solution_old_loc[q]) /
-                            deltat * fe_values.shape_value(i, q) *
-                            fe_values.JxW(q);
-
-        cell_rhs(i) -= scalar_product(D_matrix * solution_gradient_loc[q], fe_values.shape_grad(i, q)) * fe_values.JxW(q);
-
-        // Non-linear term
-        cell_rhs(i) += alpha_loc *
-                            solution_loc[q] *
-                            (1.0 - solution_loc[q]) *
-                            fe_values.shape_value(i, q) *
-                            fe_values.JxW(q);
+        cell_rhs(i) += (
+          - (solution_loc[q] - solution_old_loc[q]) / deltat * phi_i
+          - scalar_product(D_matrix * solution_gradient_loc[q], grad_phi_i)
+          + alpha * solution_loc[q] * (1.0 - solution_loc[q]) * phi_i
+        ) * JxW;
       }
     }
 
@@ -203,6 +185,21 @@ FISHKOLM::solve_linear_system()
   pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
+// If having problems with the CG solver, try this alternative method.
+void 
+FISHKOLM::solve_linear_system_2()
+{
+  SolverControl solver_control(100000, 1e-6 * system_rhs.l2_norm());
+
+  SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control);
+  TrilinosWrappers::PreconditionSSOR      preconditioner;
+  preconditioner.initialize(
+    lhs_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
+
+  solver.solve(lhs_matrix, delta_owned, system_rhs, preconditioner);
+  pcout << "  " << solver_control.last_step() << " GMRES iterations" << std::endl;
+}
+
 void 
 FISHKOLM::solve_newton()
 {
@@ -210,29 +207,35 @@ FISHKOLM::solve_newton()
   const double residual_tolerance = 1e-3;
 
   unsigned int n_iter = 0;
-  double residual_norm = residual_tolerance + 1;
+  double residual_norm = std::numeric_limits<double>::max();
 
-  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
-  {
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance) {
     assemble_system();
     residual_norm = system_rhs.l2_norm();
 
-    pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
-          << " - ||r|| = " << std::scientific << std::setprecision(6)
+    pcout << "  Iteration: " << n_iter << ": "
+          << " ||r|| = " << std::scientific << std::setprecision(3)
           << residual_norm << std::flush;
-
-    if (residual_norm > residual_tolerance)
-    {
-      solve_linear_system();
-      solution_owned += delta_owned;
-      solution = solution_owned;
-    }
-    else
+    
+    if (residual_norm <= residual_tolerance)
     {
       pcout << " < tolerance" << std::endl;
+      break;
     }
+    
+    pcout << std::endl;
+    solve_linear_system();
+    solution_owned += delta_owned;
+    solution = solution_owned;
 
     ++n_iter;
+  }
+
+  if (n_iter == n_max_iters && residual_norm > residual_tolerance)
+  {
+    pcout << "  Warning: Newton solver did not converge after "
+          << n_max_iters << " iterations. Final residual: "
+          << residual_norm << std::endl;
   }
 }
 
@@ -265,7 +268,7 @@ FISHKOLM::solve()
     solution_old = solution;
 
     pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
-          << time << ":" << std::flush;
+          << time << ":" << std::endl;
 
     solve_newton();
     output(time_step);
