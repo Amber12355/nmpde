@@ -30,6 +30,7 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/point.h>
 #include <deal.II/base/tensor.h>
+#include <deal.II/base/timer.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/matrix_tools.h>
@@ -189,7 +190,7 @@ public:
   FISHKOLM(const std::string &mesh_file_name_,
            const unsigned int &r_,
            const double &T_,
-           const double &deltat_)
+           double &deltat_)
       : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
       , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
       , pcout(std::cout, mpi_rank == 0)
@@ -274,7 +275,7 @@ protected:
   const unsigned int r;
 
   // Time step.
-  const double deltat;
+  double deltat;
 
   // Mesh.
   parallel::fullydistributed::Triangulation<dim> mesh;
@@ -311,6 +312,7 @@ protected:
 
   // System solution at previous time step.
   TrilinosWrappers::MPI::Vector solution_old;
+
   double       deltat_min = 1.0 / 36.0;      
   double       deltat_max = 1.0;      
   const double increase_factor = 1.2; 

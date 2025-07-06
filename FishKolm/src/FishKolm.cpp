@@ -189,13 +189,13 @@ FISHKOLM::solve_linear_system()
 void 
 FISHKOLM::solve_linear_system_2()
 {
-  SolverControl solver_control(5000, 1e-6 * residual_vector.l2_norm());
+  SolverControl solver_control(5000, 1e-6 * system_rhs.l2_norm());
   SolverCG<TrilinosWrappers::MPI::Vector> solver(solver_control);
   TrilinosWrappers::PreconditionAMG preconditioner;
   TrilinosWrappers::PreconditionAMG::AdditionalData amg_data;
-  preconditioner.initialize(jacobian_matrix, amg_data);
+  preconditioner.initialize(lhs_matrix, amg_data);
 
-  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner);
+  solver.solve(lhs_matrix, delta_owned, system_rhs, preconditioner);
   pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
@@ -211,7 +211,7 @@ FISHKOLM::solve_newton_opt()
   while (n_iter < n_max_iters && residual_norm > residual_tolerance)
   {
     assemble_system();
-    residual_norm = residual_vector.l2_norm();
+    residual_norm = system_rhs.l2_norm();
 
     pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
           << " - ||r|| = " << std::scientific << std::setprecision(6)

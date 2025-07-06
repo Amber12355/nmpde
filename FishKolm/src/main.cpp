@@ -11,7 +11,7 @@ main(int argc, char *argv[])
   const unsigned int degree         = 1;
 
   double T      = 40.0;            // 40 years
-  double deltat = 1.0/3.0;    // four months every time step
+  double deltat = 1.0/3.0;         // four months every time step
   
   FISHKOLM problem(mesh_file_name, degree, T, deltat);
   
