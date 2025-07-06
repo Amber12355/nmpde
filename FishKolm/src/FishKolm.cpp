@@ -199,7 +199,8 @@ FISHKOLM::solve_linear_system_2()
   pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
-unsigned int FK_solver::solve_newton_opt()
+unsigned int 
+FISHKOLM::solve_newton_opt()
 {
   const unsigned int n_max_iters = 1000;
   const double residual_tolerance = 1e-3;
@@ -233,6 +234,7 @@ unsigned int FK_solver::solve_newton_opt()
   }
   return n_iter;
 }
+
 void 
 FISHKOLM::solve_newton()
 {
@@ -271,7 +273,8 @@ FISHKOLM::solve_newton()
           << residual_norm << std::endl;
   }
 }
-void FK_solver::solve_opt()
+void 
+FISHKOLM::solve_opt()
 {
   Timer timer;
   timer.start();
